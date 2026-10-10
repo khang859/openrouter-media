@@ -74,6 +74,13 @@ Add `--json` to get the result as JSON.
 The defaults are `google/gemini-nano-banana-2.1` for images and `x-ai/grok-imagine-video-1.5-lite` for videos.
 Change them per call with `--model`, or for good with `ormedia config`.
 
+## Prompt guides
+
+Each model family wants a different kind of prompt.
+The skill has one guide for each family in `skills/generate-media/prompts/`, taken from the maker's own documentation.
+Claude reads the guide for the model in use before it writes the prompt.
+`video-directing.md` covers the craft for any video model: the shot list, the still-first method, consistency between shots, sound, and how to spend less on retries.
+
 ## Settings
 
 `ormedia config` shows every setting and where its value comes from.

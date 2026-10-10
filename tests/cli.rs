@@ -94,6 +94,27 @@ fn each_slash_command_runs_its_own_command_and_only_the_user_starts_it() {
 }
 
 #[test]
+fn the_skill_links_every_prompt_guide_and_every_link_has_a_file() {
+    let skill = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("skills")
+        .join("generate-media");
+    let text = std::fs::read_to_string(skill.join("SKILL.md")).unwrap();
+
+    let mut guides: Vec<String> = std::fs::read_dir(skill.join("prompts"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    guides.sort();
+    assert!(!guides.is_empty());
+    for guide in &guides {
+        assert!(text.contains(&format!("(prompts/{guide})")), "{guide}");
+    }
+
+    let linked = text.matches("(prompts/").count();
+    assert_eq!(linked, guides.len(), "a link in SKILL.md has no file");
+}
+
+#[test]
 fn config_saves_shows_and_removes_a_setting() {
     let sandbox = Sandbox::new();
     let file = sandbox.config_file().display().to_string();
