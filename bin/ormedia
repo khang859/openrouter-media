@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+// CommonJS on purpose: a file with no extension runs the same on every Node
+// version this way, and the dynamic import reaches the ES modules.
+import('../src/cli.mjs').then(({ main }) => main(process.argv.slice(2)));

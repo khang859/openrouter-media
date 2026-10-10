@@ -1,0 +1,12 @@
+{
+  "name": "openrouter-media",
+  "version": "0.1.0",
+  "description": "Generate and edit images, and generate videos, with any OpenRouter model",
+  "author": {
+    "name": "Khang"
+  },
+  "homepage": "https://github.com/khang859/openrouter-media",
+  "repository": "https://github.com/khang859/openrouter-media",
+  "license": "MIT",
+  "keywords": ["openrouter", "image-generation", "video-generation", "media"]
+}

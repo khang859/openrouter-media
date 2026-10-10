@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/khang859/openrouter-media/security/advisories/new
+    about: Report a vulnerability in private. Do not open a public issue.
+  - name: OpenRouter API or billing problem
+    url: https://openrouter.ai/docs
+    about: Model outages, pricing, and account questions go to OpenRouter.
