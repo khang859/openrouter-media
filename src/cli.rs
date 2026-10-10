@@ -6,13 +6,19 @@ use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use serde_json::{Map, Value, json};
 
 use crate::Result;
-use crate::api::{Client, Https, ImageOptions, VideoOptions, image_body, status_of, video_body};
+use crate::api::{
+    Client, Https, ImageOptions, SpeechOptions, TranscribeOptions, VideoOptions, VoiceSample,
+    image_body, speech_body, status_of, transcribe_body, video_body,
+};
 use crate::auth::{authorize, delete_key, read_key, save_key};
 use crate::config::{
     self, DEFAULT_SOURCE, SETTINGS, Settings, resolve_settings, set_setting, unset_setting,
 };
 use crate::env::Env;
-use crate::files::{Output, open_in_fleet, open_url, save_outputs, slug, timestamp, to_image_url};
+use crate::files::{
+    Output, audio_format, is_web_url, open_in_fleet, open_url, save_outputs, slug, timestamp,
+    to_audio_reference, to_image_url,
+};
 use crate::models::{describe_model, plain};
 use crate::update;
 
@@ -25,15 +31,17 @@ fn help() -> String {
         .map(|setting| format!("  {:<24}{}", setting.name, setting.about))
         .collect();
     format!(
-        "ormedia - generate images and videos with OpenRouter
+        "ormedia - generate images, videos, and speech with OpenRouter
 
 Usage
   ormedia login                      Sign in with the browser and store an API key
   ormedia logout                     Delete the stored API key
   ormedia status                     Show which key is in use and its spend
-  ormedia models <image|video>       List models and the options each one takes
+  ormedia models <kind>              List the image, video, speech, or transcribe models
   ormedia image --prompt <text>      Generate or edit an image
   ormedia video --prompt <text>      Generate a video
+  ormedia speech --text <text>       Turn text into speech
+  ormedia transcribe <path|url>      Write down the words in an audio file
   ormedia job <job-id>               Check a video job, and download it when done
   ormedia config                     Show the settings and where each one comes from
   ormedia config set <name> <value>  Save a setting
@@ -64,6 +72,23 @@ Video options
   --no-wait               Print the job id and return at once
   --timeout <minutes>     How long to wait for the video. Default: {timeout}
 
+Speech options
+  --model <id>            Default: {speech_model}
+  --text-file <path>      Read the words from a file, in place of --text
+  --voice <id>            A voice of the model. `ormedia models speech` lists them.
+  --voice-sample <path|url>   Audio of a voice to copy. Repeat for more.
+  --voice-sample-text <text>  The words said in the sample. Repeat in the same order.
+  --instructions <text>   How to say it, for models that take it
+  --speed <x>             For example 1.25, for models that take it
+  --format <f>            mp3 or pcm. Default: mp3
+
+Transcribe options
+  --model <id>            Default: {transcribe_model}
+  --language <code>       For example en, ja. Without it, the model detects the language.
+  --timestamps <level>    segment or word: add the start and end time. Repeat for both.
+  --speakers              Label who says each word, for models that can
+  --format <f>            What the file holds, when its name does not say. For example mp3.
+
 Shared options
   --out <path>            A file name, or a folder. Default: the current folder.
   --search <text>         models: keep only models that match
@@ -73,13 +98,16 @@ Shared options
 
 Settings
 {settings}
-  A flag wins over $ORMEDIA_IMAGE_MODEL, $ORMEDIA_VIDEO_MODEL, and
-  $ORMEDIA_UPDATE_CHECK, which win over a saved setting, which wins over the default.
+  A flag wins over $ORMEDIA_IMAGE_MODEL, $ORMEDIA_VIDEO_MODEL, $ORMEDIA_SPEECH_MODEL,
+  $ORMEDIA_TRANSCRIBE_MODEL, and $ORMEDIA_UPDATE_CHECK, which win over a saved setting,
+  which wins over the default.
 
 The API key comes from $OPENROUTER_API_KEY, or from `ormedia login`.
 ",
         image_model = config::DEFAULT_IMAGE_MODEL,
         video_model = config::DEFAULT_VIDEO_MODEL,
+        speech_model = config::DEFAULT_SPEECH_MODEL,
+        transcribe_model = config::DEFAULT_TRANSCRIBE_MODEL,
         timeout = config::DEFAULT_TIMEOUT_MINUTES,
         settings = settings.join("\n"),
     )
@@ -89,7 +117,7 @@ The API key comes from $OPENROUTER_API_KEY, or from `ormedia login`.
 #[command(
     name = "ormedia",
     version,
-    about = "Generate images and videos with OpenRouter"
+    about = "Generate images, videos, and speech with OpenRouter"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -108,7 +136,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// List models and the options each one takes
+    /// List the image, video, speech, or transcribe models
     Models {
         kind: Kind,
         /// Keep only models that match
@@ -122,6 +150,10 @@ enum Command {
     Image(ImageArgs),
     /// Generate a video
     Video(VideoArgs),
+    /// Turn text into speech
+    Speech(SpeechArgs),
+    /// Write down the words in an audio file
+    Transcribe(TranscribeArgs),
     /// Check a video job, and download it when done
     Job(JobArgs),
     /// Show the settings, or save one with `set` and `unset`
@@ -129,16 +161,21 @@ enum Command {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
-enum Kind {
+pub enum Kind {
     Image,
     Video,
+    Speech,
+    Transcribe,
 }
 
 impl Kind {
-    fn name(self) -> &'static str {
+    /// Where OpenRouter lists the models of this kind.
+    fn models_path(self) -> &'static str {
         match self {
-            Kind::Image => "image",
-            Kind::Video => "video",
+            Kind::Image => "/images/models",
+            Kind::Video => "/videos/models",
+            Kind::Speech => "/models?output_modalities=speech",
+            Kind::Transcribe => "/models?output_modalities=transcription",
         }
     }
 }
@@ -244,6 +281,65 @@ struct VideoArgs {
 }
 
 #[derive(Args)]
+struct SpeechArgs {
+    /// The words to say, when they are not given with --text
+    words: Vec<String>,
+    #[arg(long, value_name = "text")]
+    text: Option<String>,
+    /// Read the words from a file, in place of --text
+    #[arg(long, value_name = "path", conflicts_with = "text")]
+    text_file: Option<String>,
+    /// Default: the `speech-model` setting
+    #[arg(long, value_name = "id")]
+    model: Option<String>,
+    /// A voice of the model. `ormedia models speech` lists them.
+    #[arg(long, value_name = "id")]
+    voice: Option<String>,
+    /// Audio of a voice to copy. Repeat for more.
+    #[arg(long, value_name = "path|url")]
+    voice_sample: Vec<String>,
+    /// The words said in the sample. Repeat in the same order.
+    #[arg(long, value_name = "text")]
+    voice_sample_text: Vec<String>,
+    /// How to say it, for models that take it
+    #[arg(long, value_name = "text")]
+    instructions: Option<String>,
+    /// For example 1.25, for models that take it
+    #[arg(long, value_name = "x")]
+    speed: Option<f64>,
+    /// mp3 or pcm. Default: mp3
+    #[arg(long, value_name = "f")]
+    format: Option<String>,
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+#[derive(Args)]
+struct TranscribeArgs {
+    /// The audio file, or its URL
+    #[arg(value_name = "path|url")]
+    audio: String,
+    /// Default: the `transcribe-model` setting
+    #[arg(long, value_name = "id")]
+    model: Option<String>,
+    /// For example en, ja. Without it, the model detects the language.
+    #[arg(long, value_name = "code")]
+    language: Option<String>,
+    /// segment or word: add the start and end time. Repeat for both.
+    #[arg(long, value_name = "level")]
+    timestamps: Vec<String>,
+    /// Label who says each word, for models that can
+    #[arg(long)]
+    speakers: bool,
+    /// What the file holds, when its name does not say. For example mp3.
+    #[arg(long, value_name = "f")]
+    format: Option<String>,
+    /// Print the result as JSON
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
 struct JobArgs {
     id: String,
     /// Wait until the video is done
@@ -317,6 +413,8 @@ fn choose_model(flag: Option<String>, kind: Kind, settings: &Settings) -> String
     let (name, fallback) = match kind {
         Kind::Image => (config::IMAGE_MODEL, config::DEFAULT_IMAGE_MODEL),
         Kind::Video => (config::VIDEO_MODEL, config::DEFAULT_VIDEO_MODEL),
+        Kind::Speech => (config::SPEECH_MODEL, config::DEFAULT_SPEECH_MODEL),
+        Kind::Transcribe => (config::TRANSCRIBE_MODEL, config::DEFAULT_TRANSCRIBE_MODEL),
     };
     flag.or_else(|| settings.text(name))
         .unwrap_or_else(|| fallback.to_string())
@@ -420,17 +518,16 @@ fn models(kind: Kind, search: Option<String>, json: bool) -> Result<()> {
         term.as_ref().is_none_or(|term| text.contains(term))
     };
     let list: Vec<Value> = Client::https(None)
-        .list_models(kind.name())?
+        .list_models(kind.models_path())?
         .into_iter()
         .filter(matches)
         .collect();
     if json {
         say(pretty(&Value::Array(list)));
     } else {
-        let video = matches!(kind, Kind::Video);
         say(list
             .iter()
-            .map(|model| describe_model(video, model))
+            .map(|model| describe_model(kind, model))
             .collect::<Vec<_>>()
             .join("\n\n"));
     }
@@ -555,6 +652,107 @@ fn video(args: VideoArgs, env: &Env) -> Result<()> {
     )
 }
 
+fn speech(args: SpeechArgs, env: &Env) -> Result<()> {
+    let text = match (args.text, args.text_file) {
+        (Some(text), _) => text,
+        (None, Some(path)) => std::fs::read_to_string(&path)
+            .map_err(|error| format!("Cannot read {path}: {error}"))?,
+        (None, None) => args.words.join(" "),
+    };
+    if text.trim().is_empty() {
+        return Err("Speech needs a --text or a --text-file".into());
+    }
+    if args.voice_sample_text.len() > args.voice_sample.len() {
+        return Err("Each --voice-sample-text needs a --voice-sample".into());
+    }
+    let mut transcripts = args.voice_sample_text.into_iter();
+    let samples = args
+        .voice_sample
+        .iter()
+        .map(|reference| {
+            Ok(VoiceSample {
+                audio: to_audio_reference(reference)?,
+                transcript: transcripts.next(),
+            })
+        })
+        .collect::<Result<_>>()?;
+    let settings = resolve_settings(env)?;
+    let chosen = choose(&args.output, None, &settings);
+    let model = choose_model(args.model, Kind::Speech, &settings);
+    let body = speech_body(SpeechOptions {
+        model: model.clone(),
+        text: text.clone(),
+        voice: args.voice,
+        samples,
+        instructions: args.instructions,
+        speed: args.speed,
+        // Always sent: the API default is raw PCM, which no player opens.
+        format: Some(args.format.unwrap_or_else(|| "mp3".to_string())),
+    });
+
+    let client = signed_in_client(env)?;
+    progress(format!("Generating speech with {model}..."));
+    let audio = client.generate_speech(&body)?;
+    let stem = format!("{}-{}", slug(&text), timestamp(SystemTime::now()));
+    let facts = vec![("model", json!(model))];
+    finish(&[audio], &stem, &chosen, args.output.json, facts, env)
+}
+
+/// A transcript as lines of text: one line per timed segment, or the text alone.
+fn describe_transcript(reply: &Value) -> String {
+    let segments = reply["segments"].as_array();
+    let Some(segments) = segments.filter(|segments| !segments.is_empty()) else {
+        return plain(&reply["text"]).trim().to_string();
+    };
+    let line = |segment: &Value| {
+        let seconds = |field: &str| segment[field].as_f64().unwrap_or_default();
+        format!(
+            "[{:.2} - {:.2}] {}",
+            seconds("start"),
+            seconds("end"),
+            plain(&segment["text"]).trim()
+        )
+    };
+    segments.iter().map(line).collect::<Vec<_>>().join("\n")
+}
+
+fn transcribe(args: TranscribeArgs, env: &Env) -> Result<()> {
+    let web = is_web_url(&args.audio);
+    let format = args.format.or_else(|| audio_format(&args.audio));
+    if !web && format.is_none() {
+        return Err(format!(
+            "Cannot tell what {} holds. Add --format, for example --format mp3",
+            args.audio
+        ));
+    }
+    let model = choose_model(args.model, Kind::Transcribe, &resolve_settings(env)?);
+    let body = transcribe_body(TranscribeOptions {
+        model: model.clone(),
+        audio: to_audio_reference(&args.audio)?,
+        // A URL says its own format, so only an explicit one is sent with it.
+        format: if web { None } else { format },
+        language: args.language,
+        timestamps: args.timestamps,
+        speakers: args.speakers,
+    });
+
+    let client = signed_in_client(env)?;
+    progress(format!("Transcribing with {model}..."));
+    let mut reply = client.transcribe(&body)?;
+    if args.json {
+        reply["model"] = json!(model);
+        say(pretty(&reply));
+        return Ok(());
+    }
+    say(describe_transcript(&reply));
+    // To stderr, so the transcript alone can go to a file or a pipe.
+    let cost = &reply["usage"]["cost"];
+    if !cost.is_null() {
+        progress(format!("Cost ${}", plain(cost)));
+    }
+    Ok(())
+}
+
 fn job(args: JobArgs, env: &Env) -> Result<()> {
     let id = args.id.as_str();
     let chosen = choose(&args.output, args.timeout, &resolve_settings(env)?);
@@ -596,6 +794,13 @@ fn show_config(json: bool, env: &Env) -> Result<()> {
         ));
         return Ok(());
     }
+    // Two spaces after the longest name.
+    let width = SETTINGS
+        .iter()
+        .map(|setting| setting.name.len())
+        .max()
+        .unwrap_or(0)
+        + 2;
     for resolved in settings.iter() {
         let value = resolved.value.as_ref().map_or_else(
             || "not set".to_string(),
@@ -611,7 +816,7 @@ fn show_config(json: bool, env: &Env) -> Result<()> {
                 format!("{}  ({from})", plain(value))
             },
         );
-        say(format!("{:<13}{value}", resolved.name));
+        say(format!("{:<width$}{value}", resolved.name));
     }
     say(format!("\nSaved settings are in {path}"));
     Ok(())
@@ -653,6 +858,8 @@ fn run(command: Command, env: &Env) -> Result<ExitCode> {
         Command::Models { kind, search, json } => models(kind, search, json)?,
         Command::Image(args) => image(args, env)?,
         Command::Video(args) => video(args, env)?,
+        Command::Speech(args) => speech(args, env)?,
+        Command::Transcribe(args) => transcribe(args, env)?,
         Command::Job(args) => job(args, env)?,
         Command::Config(args) => configure(args, env)?,
     }
@@ -694,6 +901,8 @@ mod tests {
         Settings::of(&[
             (config::IMAGE_MODEL, json!("saved/image")),
             (config::VIDEO_MODEL, json!("saved/video")),
+            (config::SPEECH_MODEL, json!("saved/speech")),
+            (config::TRANSCRIBE_MODEL, json!("saved/transcribe")),
             (config::OUT, out),
             (config::OPEN, json!(open)),
             (config::TIMEOUT, json!(timeout)),
@@ -714,6 +923,11 @@ mod tests {
         assert_eq!(chosen.timeout, Duration::from_secs(300));
         assert_eq!(choose_model(None, Kind::Image, &saved), "saved/image");
         assert_eq!(choose_model(None, Kind::Video, &saved), "saved/video");
+        assert_eq!(choose_model(None, Kind::Speech, &saved), "saved/speech");
+        assert_eq!(
+            choose_model(None, Kind::Transcribe, &saved),
+            "saved/transcribe"
+        );
 
         let unset = choose(
             &OutputArgs::default(),
@@ -783,6 +997,62 @@ mod tests {
         );
         assert_eq!(flag.aspect_ratio.as_deref(), Some("1:1"));
         assert!(Cli::try_parse_from(["ormedia", "image", "--seed", "soon"]).is_err());
+    }
+
+    #[test]
+    fn speech_takes_its_words_three_ways_and_pairs_samples_with_their_text() {
+        let parse = |args: &[&str]| match Cli::try_parse_from(args).map(|cli| cli.command) {
+            Ok(Command::Speech(args)) => args,
+            _ => panic!("not a speech command"),
+        };
+        assert_eq!(parse(&["ormedia", "speech", "Hi", "there."]).words.len(), 2);
+        let flags = parse(&[
+            "ormedia",
+            "speech",
+            "--text",
+            "Hi.",
+            "--voice-sample",
+            "a.wav",
+            "--voice-sample-text",
+            "First.",
+            "--voice-sample",
+            "b.wav",
+            "--speed",
+            "1.25",
+        ]);
+        assert_eq!(flags.text.as_deref(), Some("Hi."));
+        assert_eq!(flags.voice_sample, ["a.wav", "b.wav"]);
+        assert_eq!(flags.voice_sample_text, ["First."]);
+        assert_eq!(flags.speed, Some(1.25));
+        assert_eq!(
+            parse(&["ormedia", "speech", "--text-file", "script.txt"])
+                .text_file
+                .as_deref(),
+            Some("script.txt")
+        );
+        let both = ["ormedia", "speech", "--text", "Hi.", "--text-file", "s.txt"];
+        assert!(Cli::try_parse_from(both).is_err());
+    }
+
+    #[test]
+    fn a_transcript_is_one_line_per_timed_segment_or_the_text_alone() {
+        let timed = json!({
+            "text": " Hello. Goodbye.",
+            "segments": [
+                { "start": 0, "end": 0.68, "text": " Hello." },
+                { "start": 0.875, "end": 12.5, "text": " Goodbye." }
+            ]
+        });
+        assert_eq!(
+            describe_transcript(&timed),
+            "[0.00 - 0.68] Hello.\n[0.88 - 12.50] Goodbye."
+        );
+        for bare in [
+            json!({ "text": " Hello. Goodbye.\n" }),
+            json!({ "text": "Hello. Goodbye.", "segments": [] }),
+        ] {
+            assert_eq!(describe_transcript(&bare), "Hello. Goodbye.");
+        }
     }
 
     #[test]

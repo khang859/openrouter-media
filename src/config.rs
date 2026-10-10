@@ -9,6 +9,8 @@ use crate::env::Env;
 
 pub const IMAGE_MODEL: &str = "image-model";
 pub const VIDEO_MODEL: &str = "video-model";
+pub const SPEECH_MODEL: &str = "speech-model";
+pub const TRANSCRIBE_MODEL: &str = "transcribe-model";
 pub const OUT: &str = "out";
 pub const OPEN: &str = "open";
 pub const TIMEOUT: &str = "timeout";
@@ -16,6 +18,8 @@ pub const UPDATE_CHECK: &str = "update-check";
 
 pub const DEFAULT_IMAGE_MODEL: &str = "google/gemini-nano-banana-2.1";
 pub const DEFAULT_VIDEO_MODEL: &str = "x-ai/grok-imagine-video-1.5-lite";
+pub const DEFAULT_SPEECH_MODEL: &str = "fish-audio/s2.1-pro";
+pub const DEFAULT_TRANSCRIBE_MODEL: &str = "fish-audio/transcribe-1-pro";
 pub const DEFAULT_TIMEOUT_MINUTES: u64 = 20;
 
 /// The `source` of a setting that nothing has set.
@@ -69,7 +73,7 @@ pub struct Setting {
 }
 
 /// Every setting `ormedia config` knows.
-pub const SETTINGS: [Setting; 6] = [
+pub const SETTINGS: [Setting; 8] = [
     Setting {
         name: IMAGE_MODEL,
         kind: Kind::Text,
@@ -83,6 +87,20 @@ pub const SETTINGS: [Setting; 6] = [
         env: Some("ORMEDIA_VIDEO_MODEL"),
         fallback: || Some(json!(DEFAULT_VIDEO_MODEL)),
         about: "Model for `ormedia video`",
+    },
+    Setting {
+        name: SPEECH_MODEL,
+        kind: Kind::Text,
+        env: Some("ORMEDIA_SPEECH_MODEL"),
+        fallback: || Some(json!(DEFAULT_SPEECH_MODEL)),
+        about: "Model for `ormedia speech`",
+    },
+    Setting {
+        name: TRANSCRIBE_MODEL,
+        kind: Kind::Text,
+        env: Some("ORMEDIA_TRANSCRIBE_MODEL"),
+        fallback: || Some(json!(DEFAULT_TRANSCRIBE_MODEL)),
+        about: "Model for `ormedia transcribe`",
     },
     Setting {
         name: OUT,
@@ -310,7 +328,16 @@ mod tests {
         let names: Vec<_> = settings.iter().map(|resolved| resolved.name).collect();
         assert_eq!(
             names,
-            [IMAGE_MODEL, VIDEO_MODEL, OUT, OPEN, TIMEOUT, UPDATE_CHECK]
+            [
+                IMAGE_MODEL,
+                VIDEO_MODEL,
+                SPEECH_MODEL,
+                TRANSCRIBE_MODEL,
+                OUT,
+                OPEN,
+                TIMEOUT,
+                UPDATE_CHECK
+            ]
         );
         assert!(
             settings
@@ -319,6 +346,7 @@ mod tests {
         );
         assert_eq!(settings.text(IMAGE_MODEL).unwrap(), DEFAULT_IMAGE_MODEL);
         assert_eq!(settings.text(VIDEO_MODEL).unwrap(), DEFAULT_VIDEO_MODEL);
+        assert_eq!(settings.text(SPEECH_MODEL).unwrap(), DEFAULT_SPEECH_MODEL);
         assert_eq!(settings.text(OUT), None);
         assert_eq!(settings.flag(OPEN), Some(true));
         assert_eq!(settings.count(TIMEOUT), Some(20));

@@ -1,6 +1,6 @@
 # openrouter-media
 
-A Claude Code plugin that generates and edits images, and generates videos, through the OpenRouter API.
+A Claude Code plugin that generates and edits images, generates videos, turns text into speech, and transcribes audio, through the OpenRouter API.
 It ships the `ormedia` CLI, the `generate-media` skill, and slash commands such as `/openrouter-media:login`.
 
 ## Stack
@@ -30,7 +30,7 @@ Otherwise it downloads the build for the plugin version from the GitHub release,
 - `src/models.rs` - turns a model record into text for `ormedia models`
 - `src/update.rs` - the once-a-day check for a newer release
 - `skills/generate-media/SKILL.md` - what Claude reads to learn the CLI
-- `skills/generate-media/prompts/*.md` - one prompt guide for each model family, plus `video-directing.md`. `SKILL.md` links each one, and a test fails when a link or a file is missing.
+- `skills/generate-media/prompts/*.md` - one prompt guide for each model family, plus `video-directing.md` and `speech-dubbing.md`. `SKILL.md` links each one, and a test fails when a link or a file is missing.
 - `skills/{login,logout,status,config,models}/SKILL.md` - the slash commands. Each one runs the `ormedia` command of the same name, and only the user can start it.
 - `tests/cli.rs` - runs the real program, the way a user does
 - `.github/workflows/release.yml` - builds the program for each platform when a `vX.Y.Z` tag is pushed
@@ -71,12 +71,15 @@ A new or changed command that the user runs by hand also needs its slash command
 Unit tests use a fake `Transport`, so they cannot catch a change in the OpenRouter API.
 After you change a request or a response path, run the real command once.
 An image costs about $0.04.
+Speech costs nothing with `--model fish-audio/s2.1-pro-free:free`.
+A transcript of a few seconds of audio costs less than $0.001.
 A video costs real money per second, so use the shortest duration and the lowest resolution, and ask the user first.
 
 Check the API shape in the OpenRouter docs before you change a call:
 
 - Images: <https://openrouter.ai/docs/guides/overview/multimodal/image-generation>
 - Videos: <https://openrouter.ai/docs/guides/overview/multimodal/video-generation>
+- Speech and transcripts: `/audio/speech` and `/audio/transcriptions` in <https://openrouter.ai/openapi.json>
 - Sign-in: <https://openrouter.ai/docs/guides/overview/auth/oauth>
 
 ## Commits and releases
