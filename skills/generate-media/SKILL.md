@@ -1,6 +1,6 @@
 ---
 name: generate-media
-description: Generate or edit images, and generate videos, with any OpenRouter model through the `ormedia` CLI. Use when the user asks to create, draw, render, design, edit, or restyle an image, logo, icon, illustration, or mockup, or to make, animate, or generate a video or clip.
+description: Generate or edit images, generate videos, turn text into speech, and transcribe audio, with any OpenRouter model through the `ormedia` CLI. Use when the user asks to create, draw, render, design, edit, or restyle an image, logo, icon, illustration, or mockup, to make, animate, or generate a video or clip, or to make a voice-over, a narration, text to speech, a transcript of an audio or video file, or a dub or a translation of a video.
 ---
 
 # Generate media with OpenRouter
@@ -46,11 +46,39 @@ If the command stops before the video is saved, the job still runs on OpenRouter
 Get it with `ormedia job <id> --wait`.
 Do not submit the same video again, because that pays twice.
 
+## Speech
+
+```bash
+ormedia speech --text "[warm] Welcome back. Here is what is new this week." --voice <id> --out audio/
+ormedia speech --text-file script.txt --voice-sample ./me.wav --voice-sample-text "The exact words in me.wav."
+```
+
+- The default model is Fish Audio S2.1 Pro. The result is an MP3 file.
+- `--voice` takes a voice id of the model. `ormedia models speech --search <name>` lists the voices of a model that has a fixed list.
+- `--voice-sample` copies the voice in a recording. Use it only when the user owns that voice or has the right to use it.
+- `--instructions` and `--speed` work only on the models that take them. Fish Audio takes the style as cues in the text.
+- Speech is priced per character and returns in seconds, so run it in the foreground.
+- You cannot hear the result. Check its length with `ffprobe`, then ask the user to listen.
+
+## Transcripts
+
+```bash
+ormedia transcribe ./interview.mp3
+ormedia transcribe ./clip.mp4 --timestamps segment --language en
+```
+
+- The command takes an audio file, a video file, or a URL, and prints the words to stdout.
+- `--timestamps segment` prints one line per segment, with its start and end time in seconds.
+- `--json` prints the full reply, with the time of each word when you pass `--timestamps word`.
+- The price is per second of audio. The command prints the cost to stderr.
+
+To put a voice on a video, or to translate the voice of a video, read [prompts/speech-dubbing.md](prompts/speech-dubbing.md).
+
 ## Choosing a model
 
 Use the default model unless the user names one or the task needs something the default lacks.
 The default is the user's own choice when they saved one, so do not pass `--model` just to repeat it.
-`ormedia models image` and `ormedia models video` list every model with the options it accepts.
+`ormedia models image`, `ormedia models video`, `ormedia models speech`, and `ormedia models transcribe` list every model with the options it accepts.
 Send only options the chosen model lists.
 The API rejects an unsupported value and names the valid ones, so read the error and retry once.
 
@@ -63,7 +91,7 @@ ormedia config unset image-model
 ```
 
 - `ormedia config` shows each setting and where its value comes from.
-- The settings are `image-model`, `video-model`, `out`, `open`, `timeout`, and `update-check`.
+- The settings are `image-model`, `video-model`, `speech-model`, `transcribe-model`, `out`, `open`, `timeout`, and `update-check`.
 - A flag on the command line wins over a saved setting.
 - Change a setting only when the user asks for a lasting change. For one result, use the flag.
 
@@ -103,6 +131,7 @@ Each model family also has its own syntax, so read the guide for the model befor
 | `bytedance/seedance` | [prompts/video-seedance.md](prompts/video-seedance.md) |
 | `alibaba/` | [prompts/video-wan.md](prompts/video-wan.md) |
 | Any other video model | [prompts/video-other-models.md](prompts/video-other-models.md) |
+| `fish-audio/` | [prompts/speech-fish-audio.md](prompts/speech-fish-audio.md) |
 
 For a video with more than one clip, with speech, or that must look professional, also read [prompts/video-directing.md](prompts/video-directing.md).
 It covers the shot list, the still-first method, consistency between shots, sound, and how to spend less on retries.

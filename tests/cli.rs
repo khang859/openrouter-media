@@ -22,6 +22,8 @@ impl Sandbox {
             "OPENROUTER_API_KEY",
             "ORMEDIA_IMAGE_MODEL",
             "ORMEDIA_VIDEO_MODEL",
+            "ORMEDIA_SPEECH_MODEL",
+            "ORMEDIA_TRANSCRIBE_MODEL",
         ] {
             command.env_remove(variable);
         }
@@ -51,13 +53,15 @@ fn help_is_one_page_and_no_arguments_shows_it() {
     let help = sandbox.run(&["--help"]);
     assert!(help.status.success());
     assert!(
-        stdout(&help)
-            .starts_with("ormedia - generate images and videos with OpenRouter\n\nUsage\n")
+        stdout(&help).starts_with(
+            "ormedia - generate images, videos, and speech with OpenRouter\n\nUsage\n"
+        )
     );
     assert!(stdout(&help).contains("--open | --no-open"));
     assert_eq!(stdout(&sandbox.run(&[])), stdout(&help));
     assert_eq!(stdout(&sandbox.run(&["help"])), stdout(&help));
     assert!(stdout(&sandbox.run(&["image", "--help"])).contains("--aspect-ratio <r>"));
+    assert!(stdout(&sandbox.run(&["speech", "--help"])).contains("--voice-sample <path|url>"));
 }
 
 #[test]
@@ -125,10 +129,10 @@ fn config_saves_shows_and_removes_a_setting() {
 
     let shown = stdout(&sandbox.run(&["config"]));
     assert!(
-        shown.starts_with("image-model  acme/image-1  (saved)\n"),
+        shown.starts_with("image-model       acme/image-1  (saved)\n"),
         "{shown}"
     );
-    assert!(shown.contains("\nout          not set\n"), "{shown}");
+    assert!(shown.contains("\nout               not set\n"), "{shown}");
     assert!(
         shown.ends_with(&format!("\n\nSaved settings are in {file}\n")),
         "{shown}"
@@ -171,7 +175,7 @@ fn config_set_says_when_an_environment_variable_still_wins() {
     );
     let shown = stdout(&with_variable(&["config"]));
     assert!(
-        shown.contains("video-model  env/video  ($ORMEDIA_VIDEO_MODEL)\n"),
+        shown.contains("video-model       env/video  ($ORMEDIA_VIDEO_MODEL)\n"),
         "{shown}"
     );
 }
@@ -208,9 +212,40 @@ fn a_call_that_cannot_work_fails_with_a_reason() {
         "ormedia: A video needs a --prompt or a frame image\n"
     );
     assert_eq!(
-        failure(&["image", "--prompt", "a boat"]),
-        "ormedia: No API key. Run `ormedia login`, or set OPENROUTER_API_KEY.\n"
+        failure(&["speech", "--text", "  "]),
+        "ormedia: Speech needs a --text or a --text-file\n"
     );
+    assert_eq!(
+        failure(&["speech", "Hello.", "--voice-sample-text", "Hi."]),
+        "ormedia: Each --voice-sample-text needs a --voice-sample\n"
+    );
+    assert!(
+        failure(&["speech", "Hello.", "--voice-sample", "no-such-file.wav"])
+            .starts_with("ormedia: Cannot read no-such-file.wav: ")
+    );
+    assert!(
+        failure(&["speech", "--text-file", "no-such-file.txt"])
+            .starts_with("ormedia: Cannot read no-such-file.txt: ")
+    );
+    assert_eq!(
+        failure(&["transcribe", "recording"]),
+        "ormedia: Cannot tell what recording holds. Add --format, for example --format mp3\n"
+    );
+    assert!(
+        failure(&["transcribe", "no-such-file.mp3"])
+            .starts_with("ormedia: Cannot read no-such-file.mp3: ")
+    );
+    assert!(failure(&["transcribe"]).contains("Usage:"));
+    for args in [
+        &["image", "--prompt", "a boat"][..],
+        &["speech", "--text", "Hello."],
+        &["transcribe", "https://example.com/a.mp3"],
+    ] {
+        assert_eq!(
+            failure(args),
+            "ormedia: No API key. Run `ormedia login`, or set OPENROUTER_API_KEY.\n"
+        );
+    }
 }
 
 #[test]
@@ -221,6 +256,8 @@ fn a_broken_config_stops_a_command_before_it_can_cost_money() {
     for args in [
         &["image", "--prompt", "a boat"][..],
         &["video", "--prompt", "a boat"],
+        &["speech", "--text", "Hello."],
+        &["transcribe", "https://example.com/a.mp3"],
         &["job", "abc"],
     ] {
         let output = sandbox
@@ -276,7 +313,7 @@ fn the_update_check_can_be_turned_off_and_runs_at_most_once_a_day() {
         .output()
         .unwrap();
     assert!(
-        stdout(&output).contains("update-check true  (default)\n"),
+        stdout(&output).contains("update-check      true  (default)\n"),
         "{}",
         stdout(&output)
     );

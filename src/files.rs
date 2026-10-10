@@ -27,13 +27,19 @@ fn image_mime(path: &Path) -> Option<&'static str> {
     }
 }
 
+fn has_scheme(reference: &str, schemes: &[&str]) -> bool {
+    let lower = reference.to_ascii_lowercase();
+    schemes.iter().any(|scheme| lower.starts_with(scheme))
+}
+
+/// A web address, which OpenRouter fetches on its own.
+pub fn is_web_url(reference: &str) -> bool {
+    has_scheme(reference, &["http:", "https:"])
+}
+
 /// A reference image as the API wants it: a URL as is, a local file as a data URL.
 pub fn to_image_url(reference: &str) -> Result<String> {
-    let lower = reference.to_ascii_lowercase();
-    if ["http:", "https:", "data:"]
-        .iter()
-        .any(|scheme| lower.starts_with(scheme))
-    {
+    if has_scheme(reference, &["http:", "https:", "data:"]) {
         return Ok(reference.to_string());
     }
     let mime = image_mime(Path::new(reference)).ok_or_else(|| {
@@ -41,6 +47,22 @@ pub fn to_image_url(reference: &str) -> Result<String> {
     })?;
     let data = fs::read(reference).map_err(|error| format!("Cannot read {reference}: {error}"))?;
     Ok(format!("data:{mime};base64,{}", STANDARD.encode(data)))
+}
+
+/// A voice sample as the API wants it: a URL as is, a local file as base64.
+/// The type is not checked here: the provider reads it from the bytes.
+pub fn to_audio_reference(reference: &str) -> Result<String> {
+    if is_web_url(reference) {
+        return Ok(reference.to_string());
+    }
+    let data = fs::read(reference).map_err(|error| format!("Cannot read {reference}: {error}"))?;
+    Ok(STANDARD.encode(data))
+}
+
+/// The audio format the API must be told for a local file: its extension.
+pub fn audio_format(reference: &str) -> Option<String> {
+    let extension = Path::new(reference).extension()?.to_str()?;
+    Some(extension.to_ascii_lowercase())
 }
 
 pub fn extension_for(mime_type: &str) -> &'static str {
@@ -59,6 +81,9 @@ pub fn extension_for(mime_type: &str) -> &'static str {
         "video/mp4" => ".mp4",
         "video/webm" => ".webm",
         "video/quicktime" => ".mov",
+        "audio/mpeg" | "audio/mp3" => ".mp3",
+        "audio/pcm" | "audio/l16" => ".pcm",
+        "audio/wav" | "audio/x-wav" => ".wav",
         _ => ".bin",
     }
 }

@@ -5,7 +5,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value, json};
 
 use crate::Result;
-use crate::files::Output;
+use crate::files::{Output, is_web_url};
 
 pub const BASE_URL: &str = "https://openrouter.ai/api/v1";
 
@@ -135,6 +135,99 @@ pub fn video_body(o: VideoOptions) -> Value {
         body.insert("frame_images".to_string(), Value::Array(frames));
     }
     set_references(&mut body, &o.references);
+    Value::Object(body)
+}
+
+/// A recording of the voice to copy, and the words said in it.
+pub struct VoiceSample {
+    /// A web URL, or the audio as base64.
+    pub audio: String,
+    pub transcript: Option<String>,
+}
+
+#[derive(Default)]
+pub struct SpeechOptions {
+    pub model: String,
+    pub text: String,
+    pub voice: Option<String>,
+    pub samples: Vec<VoiceSample>,
+    pub instructions: Option<String>,
+    pub speed: Option<f64>,
+    pub format: Option<String>,
+}
+
+pub fn speech_body(o: SpeechOptions) -> Value {
+    let Value::Object(mut body) = json!({ "model": o.model, "input": o.text }) else {
+        unreachable!("the literal is an object");
+    };
+    set_optional(
+        &mut body,
+        vec![
+            ("voice", o.voice.map(Value::from)),
+            ("instructions", o.instructions.map(Value::from)),
+            ("speed", o.speed.map(Value::from)),
+            ("response_format", o.format.map(Value::from)),
+        ],
+    );
+    // A transcript comes right after the sample it belongs to.
+    let references: Vec<Value> = o
+        .samples
+        .into_iter()
+        .flat_map(|sample| {
+            let field = if is_web_url(&sample.audio) {
+                "url"
+            } else {
+                "data"
+            };
+            let audio = json!({ "type": "input_audio", "input_audio": { field: sample.audio } });
+            let transcript = sample
+                .transcript
+                .map(|text| json!({ "type": "text", "text": text }));
+            std::iter::once(audio).chain(transcript)
+        })
+        .collect();
+    if !references.is_empty() {
+        body.insert("input_references".to_string(), Value::Array(references));
+    }
+    Value::Object(body)
+}
+
+#[derive(Default)]
+pub struct TranscribeOptions {
+    pub model: String,
+    /// A web URL, or the audio as base64.
+    pub audio: String,
+    /// What a local file holds, for example `mp3`. A URL says it with its own name.
+    pub format: Option<String>,
+    pub language: Option<String>,
+    /// `segment`, `word`, or both.
+    pub timestamps: Vec<String>,
+    pub speakers: bool,
+}
+
+pub fn transcribe_body(o: TranscribeOptions) -> Value {
+    let field = if is_web_url(&o.audio) { "url" } else { "data" };
+    let Value::Object(mut audio) = json!({ field: o.audio }) else {
+        unreachable!("the literal is an object");
+    };
+    set_optional(&mut audio, vec![("format", o.format.map(Value::from))]);
+    let Value::Object(mut body) = json!({ "model": o.model, "input_audio": audio }) else {
+        unreachable!("the literal is an object");
+    };
+    // Times and speakers come only in the long form of the reply.
+    let verbose = o.speakers || !o.timestamps.is_empty();
+    set_optional(
+        &mut body,
+        vec![
+            ("language", o.language.map(Value::from)),
+            ("response_format", verbose.then(|| json!("verbose_json"))),
+            (
+                "timestamp_granularities",
+                (!o.timestamps.is_empty()).then(|| json!(o.timestamps)),
+            ),
+            ("diarize", o.speakers.then(|| json!(true))),
+        ],
+    );
     Value::Object(body)
 }
 
@@ -276,9 +369,9 @@ impl<T: Transport> Client<T> {
             .map_err(|error| format!("OpenRouter sent a reply that is not JSON ({error})"))
     }
 
-    /// `kind` is `image` or `video`. Needs no key.
-    pub fn list_models(&self, kind: &str) -> Result<Vec<Value>> {
-        match self.json(&format!("/{kind}s/models"), None)?["data"].take() {
+    /// `path` is the model list for one kind of media. Needs no key.
+    pub fn list_models(&self, path: &str) -> Result<Vec<Value>> {
+        match self.json(path, None)?["data"].take() {
             Value::Array(models) => Ok(models),
             _ => Err("OpenRouter returned no model list".into()),
         }
@@ -311,6 +404,31 @@ impl<T: Transport> Client<T> {
                 cost_usd: reply["usage"]["cost"].take(),
             }),
             _ => Err("OpenRouter returned no image".into()),
+        }
+    }
+
+    /// The reply is the audio itself, not JSON, so it has no cost field.
+    pub fn generate_speech(&self, body: &Value) -> Result<Output> {
+        let response = self.call("/audio/speech", Some(body))?;
+        if response.body.is_empty() {
+            return Err("OpenRouter returned no audio".into());
+        }
+        let mime_type = response
+            .content_type
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        Ok(Output {
+            data: response.body,
+            mime_type,
+        })
+    }
+
+    /// The whole reply: the text, the cost, and the times when they were asked for.
+    pub fn transcribe(&self, body: &Value) -> Result<Value> {
+        let reply = self.json("/audio/transcriptions", Some(body))?;
+        if reply["text"].is_string() {
+            Ok(reply)
+        } else {
+            Err("OpenRouter returned no transcript".into())
         }
     }
 
@@ -499,6 +617,193 @@ mod tests {
                 ..Default::default()
             }),
             json!({ "model": "m" })
+        );
+    }
+
+    #[test]
+    fn speech_body_sends_only_what_was_set() {
+        let body = speech_body(SpeechOptions {
+            model: "m".into(),
+            text: "Hello.".into(),
+            ..Default::default()
+        });
+        assert_eq!(body, json!({ "model": "m", "input": "Hello." }));
+    }
+
+    #[test]
+    fn speech_body_puts_each_transcript_after_its_voice_sample() {
+        let sample = |audio: &str, transcript: Option<&str>| VoiceSample {
+            audio: audio.into(),
+            transcript: transcript.map(String::from),
+        };
+        let body = speech_body(SpeechOptions {
+            model: "m".into(),
+            text: "Hello.".into(),
+            voice: Some("v".into()),
+            samples: vec![
+                sample("UklGRg==", Some("First clip.")),
+                sample("HTTPS://x/b.wav", None),
+            ],
+            instructions: Some("Slow and calm.".into()),
+            speed: Some(1.25),
+            format: Some("mp3".into()),
+        });
+        assert_eq!(
+            body,
+            json!({
+                "model": "m",
+                "input": "Hello.",
+                "voice": "v",
+                "instructions": "Slow and calm.",
+                "speed": 1.25,
+                "response_format": "mp3",
+                "input_references": [
+                    { "type": "input_audio", "input_audio": { "data": "UklGRg==" } },
+                    { "type": "text", "text": "First clip." },
+                    { "type": "input_audio", "input_audio": { "url": "HTTPS://x/b.wav" } }
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn generate_speech_returns_the_audio_with_the_type_the_reply_names() {
+        let audio = |content_type: Option<&str>, body: &[u8]| Fake {
+            replies: RefCell::new(VecDeque::from([Response {
+                status: 200,
+                content_type: content_type.map(String::from),
+                body: body.to_vec(),
+            }])),
+            ..Fake::default()
+        };
+        let body = json!({ "model": "m", "input": "Hello." });
+
+        let fake = audio(Some("audio/mpeg"), b"ID3");
+        let speech = fake.client(Some("k")).generate_speech(&body).unwrap();
+        assert_eq!(
+            speech,
+            Output {
+                data: b"ID3".to_vec(),
+                mime_type: "audio/mpeg".into()
+            }
+        );
+        assert_eq!(
+            fake.calls.borrow()[0],
+            (
+                "https://openrouter.ai/api/v1/audio/speech".into(),
+                Some("k".into()),
+                Some(body.clone())
+            )
+        );
+
+        let unnamed = audio(None, b"raw").client(None).generate_speech(&body);
+        assert_eq!(unnamed.unwrap().mime_type, "application/octet-stream");
+        let empty = audio(Some("audio/mpeg"), b"")
+            .client(None)
+            .generate_speech(&body);
+        assert_eq!(empty.unwrap_err(), "OpenRouter returned no audio");
+
+        let fake = Fake::replying(vec![(
+            400,
+            json!({ "error": { "message": "No such voice" } }),
+        )]);
+        assert_eq!(
+            fake.client(None).generate_speech(&body).unwrap_err(),
+            "No such voice (HTTP 400)."
+        );
+    }
+
+    #[test]
+    fn transcribe_body_sends_a_file_with_its_format_and_a_url_as_it_is() {
+        let file = transcribe_body(TranscribeOptions {
+            model: "m".into(),
+            audio: "UklGRg==".into(),
+            format: Some("wav".into()),
+            ..Default::default()
+        });
+        assert_eq!(
+            file,
+            json!({ "model": "m", "input_audio": { "data": "UklGRg==", "format": "wav" } })
+        );
+        let url = transcribe_body(TranscribeOptions {
+            model: "m".into(),
+            audio: "https://x/a.mp3".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            url,
+            json!({ "model": "m", "input_audio": { "url": "https://x/a.mp3" } })
+        );
+    }
+
+    #[test]
+    fn transcribe_body_asks_for_the_long_reply_only_for_times_or_speakers() {
+        let body = |timestamps: &[&str], speakers| {
+            let mut body = transcribe_body(TranscribeOptions {
+                model: "m".into(),
+                audio: "https://x/a.mp3".into(),
+                language: Some("en".into()),
+                timestamps: timestamps.iter().map(|level| level.to_string()).collect(),
+                speakers,
+                ..Default::default()
+            });
+            let body = body.as_object_mut().unwrap();
+            body.shift_remove("model");
+            body.shift_remove("input_audio");
+            Value::Object(body.clone())
+        };
+        assert_eq!(body(&[], false), json!({ "language": "en" }));
+        assert_eq!(
+            body(&["segment", "word"], false),
+            json!({
+                "language": "en",
+                "response_format": "verbose_json",
+                "timestamp_granularities": ["segment", "word"]
+            })
+        );
+        assert_eq!(
+            body(&[], true),
+            json!({ "language": "en", "response_format": "verbose_json", "diarize": true })
+        );
+    }
+
+    #[test]
+    fn transcribe_returns_the_whole_reply_and_refuses_one_with_no_text() {
+        let reply = json!({ "text": "Hello.", "usage": { "cost": 0.0006 } });
+        let fake = Fake::replying(vec![(200, reply.clone()), (200, json!({ "usage": {} }))]);
+        let client = fake.client(Some("k"));
+        let body = json!({ "model": "m" });
+        assert_eq!(client.transcribe(&body).unwrap(), reply);
+        assert_eq!(
+            fake.calls.borrow()[0],
+            (
+                "https://openrouter.ai/api/v1/audio/transcriptions".into(),
+                Some("k".into()),
+                Some(body.clone())
+            )
+        );
+        assert_eq!(
+            client.transcribe(&body).unwrap_err(),
+            "OpenRouter returned no transcript"
+        );
+    }
+
+    #[test]
+    fn a_model_list_is_read_from_the_path_of_its_kind() {
+        let fake = Fake::replying(vec![
+            (200, json!({ "data": [{ "id": "a/b" }] })),
+            (200, json!({})),
+        ]);
+        let client = fake.client(None);
+        let models = client.list_models("/models?output_modalities=speech");
+        assert_eq!(models.unwrap(), [json!({ "id": "a/b" })]);
+        assert_eq!(
+            fake.calls.borrow()[0].0,
+            "https://openrouter.ai/api/v1/models?output_modalities=speech"
+        );
+        assert_eq!(
+            client.list_models("/images/models").unwrap_err(),
+            "OpenRouter returned no model list"
         );
     }
 
