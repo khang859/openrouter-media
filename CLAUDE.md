@@ -1,7 +1,7 @@
 # openrouter-media
 
 A Claude Code plugin that generates and edits images, and generates videos, through the OpenRouter API.
-It ships the `ormedia` CLI and the `generate-media` skill.
+It ships the `ormedia` CLI, the `generate-media` skill, and slash commands such as `/openrouter-media:login`.
 
 ## Stack
 
@@ -30,6 +30,7 @@ Otherwise it downloads the build for the plugin version from the GitHub release,
 - `src/models.rs` - turns a model record into text for `ormedia models`
 - `src/update.rs` - the once-a-day check for a newer release
 - `skills/generate-media/SKILL.md` - what Claude reads to learn the CLI
+- `skills/{login,logout,status,config,models}/SKILL.md` - the slash commands. Each one runs the `ormedia` command of the same name, and only the user can start it.
 - `tests/cli.rs` - runs the real program, the way a user does
 - `.github/workflows/release.yml` - builds the program for each platform when a `vX.Y.Z` tag is pushed
 
@@ -62,6 +63,7 @@ CI (`.github/workflows/ci.yml`) runs the lint commands on Linux, and the tests o
 ## When you change the CLI
 
 A new or changed flag must be updated in four places: the `clap` types in `src/cli.rs`, the `help()` text in the same file, `skills/generate-media/SKILL.md`, and `README.md`.
+A new or changed command that the user runs by hand also needs its slash command in `skills/<name>/SKILL.md`, and a row in the README table.
 
 ## Real API checks
 

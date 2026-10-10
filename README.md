@@ -2,10 +2,11 @@
 
 A Claude Code plugin that generates and edits images, and generates videos, with any model on [OpenRouter](https://openrouter.ai).
 
-It adds two things:
+It adds three things:
 
 - `ormedia`, a small command-line tool written in Rust.
 - A `generate-media` skill that tells Claude when and how to use it.
+- Slash commands, such as `/openrouter-media:login`, for the things you do yourself.
 
 ## Install
 
@@ -17,12 +18,31 @@ It adds two things:
 Then ask Claude for an image or a video.
 The first time `ormedia` runs, it downloads the program for your computer from the GitHub release, one time.
 It needs `curl` for that, and nothing else.
-The first time, Claude runs `ormedia login`, your browser opens, and you approve.
+To sign in, type `/openrouter-media:login`, your browser opens, and you approve.
+If you skip that, Claude runs the sign-in the first time it needs a key.
 The API key is stored in `~/.config/openrouter-media/credentials.json`, readable only by you.
 You never paste a key into the chat.
 
 To use a key you already have, set `OPENROUTER_API_KEY` instead.
 It wins over the stored key.
+
+## Slash commands
+
+Type these in Claude Code.
+
+| Command                                         | What it does                                |
+| ----------------------------------------------- | ------------------------------------------- |
+| `/openrouter-media:login`                       | Sign in with the browser                    |
+| `/openrouter-media:logout`                      | Delete the stored API key                   |
+| `/openrouter-media:status`                      | Show which key is in use and its spend      |
+| `/openrouter-media:models <image\|video> [text]` | List models, and keep those that match text |
+| `/openrouter-media:config`                      | Show the settings                           |
+| `/openrouter-media:config set <name> <value>`   | Save a setting                              |
+| `/openrouter-media:config unset <name>`         | Remove a saved setting                      |
+
+Each one runs the `ormedia` command of the same name.
+Claude never starts these on its own.
+For an image or a video, just ask Claude.
 
 ## Commands
 
