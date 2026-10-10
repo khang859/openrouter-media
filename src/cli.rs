@@ -14,6 +14,7 @@ use crate::config::{
 use crate::env::Env;
 use crate::files::{Output, open_in_fleet, open_url, save_outputs, slug, timestamp, to_image_url};
 use crate::models::{describe_model, plain};
+use crate::update;
 
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
@@ -72,8 +73,8 @@ Shared options
 
 Settings
 {settings}
-  A flag wins over $ORMEDIA_IMAGE_MODEL and $ORMEDIA_VIDEO_MODEL, which win
-  over a saved setting, which wins over the default.
+  A flag wins over $ORMEDIA_IMAGE_MODEL, $ORMEDIA_VIDEO_MODEL, and
+  $ORMEDIA_UPDATE_CHECK, which win over a saved setting, which wins over the default.
 
 The API key comes from $OPENROUTER_API_KEY, or from `ormedia login`.
 ",
@@ -610,7 +611,7 @@ fn show_config(json: bool, env: &Env) -> Result<()> {
                 format!("{}  ({from})", plain(value))
             },
         );
-        say(format!("{:<12} {value}", resolved.name));
+        say(format!("{:<13}{value}", resolved.name));
     }
     say(format!("\nSaved settings are in {path}"));
     Ok(())
@@ -667,10 +668,22 @@ pub fn main() -> ExitCode {
     // One page that lists every option. `ormedia <command> --help` has the detail.
     let matches = Cli::command().override_help(help()).get_matches_from(args);
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
-    run(cli.command, &Env::real()).unwrap_or_else(|message| {
+    let env = Env::real();
+    let code = run(cli.command, &env).unwrap_or_else(|message| {
         eprintln!("ormedia: {message}");
         ExitCode::FAILURE
-    })
+    });
+    announce_update(&env);
+    code
+}
+
+/// After the command, so its own output comes first. Settings that cannot be read mean no check.
+fn announce_update(env: &Env) {
+    let wanted = resolve_settings(env)
+        .is_ok_and(|settings| settings.flag(config::UPDATE_CHECK) != Some(false));
+    if wanted && let Some(notice) = update::notice(env, SystemTime::now(), update::latest_release) {
+        progress(notice);
+    }
 }
 
 #[cfg(test)]

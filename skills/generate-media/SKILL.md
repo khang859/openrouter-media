@@ -63,9 +63,15 @@ ormedia config unset image-model
 ```
 
 - `ormedia config` shows each setting and where its value comes from.
-- The settings are `image-model`, `video-model`, `out`, `open`, and `timeout`.
+- The settings are `image-model`, `video-model`, `out`, `open`, `timeout`, and `update-check`.
 - A flag on the command line wins over a saved setting.
 - Change a setting only when the user asks for a lasting change. For one result, use the flag.
+
+## Updates
+
+A command can end with a line that says a newer `ormedia` is out.
+Tell the user about it one time, with the update command from that line.
+Do not run the update yourself unless the user asks.
 
 ## Writing the prompt
 

@@ -65,18 +65,35 @@ ormedia config set out ~/Pictures/generated
 ormedia config unset image-model
 ```
 
-| Setting       | What it does                                  | Default                            |
-| ------------- | --------------------------------------------- | ---------------------------------- |
-| `image-model` | Model for `ormedia image`                     | `google/gemini-nano-banana-2.1`    |
-| `video-model` | Model for `ormedia video`                     | `x-ai/grok-imagine-video-1.5-lite` |
-| `out`         | Folder that results are saved to              | The current folder                 |
-| `open`        | `true` or `false`: open a new image in Fleet  | `true`                             |
-| `timeout`     | Minutes to wait for a video                   | `20`                               |
+| Setting        | What it does                                 | Default                            |
+| -------------- | -------------------------------------------- | ---------------------------------- |
+| `image-model`  | Model for `ormedia image`                    | `google/gemini-nano-banana-2.1`    |
+| `video-model`  | Model for `ormedia video`                    | `x-ai/grok-imagine-video-1.5-lite` |
+| `out`          | Folder that results are saved to             | The current folder                 |
+| `open`         | `true` or `false`: open a new image in Fleet | `true`                             |
+| `timeout`      | Minutes to wait for a video                  | `20`                               |
+| `update-check` | `true` or `false`: look for a new version    | `true`                             |
 
 Settings are stored in `~/.config/openrouter-media/config.json`.
 A flag on the command line always wins over a saved setting.
-`ORMEDIA_IMAGE_MODEL` and `ORMEDIA_VIDEO_MODEL` also win over the saved models.
+`ORMEDIA_IMAGE_MODEL`, `ORMEDIA_VIDEO_MODEL`, and `ORMEDIA_UPDATE_CHECK` also win over the saved settings.
 A relative `out` folder is relative to the folder you run the command in.
+
+## Updates
+
+One time per day, `ormedia` asks GitHub for the newest release.
+When a newer one exists, it prints one line that says so, with the command that updates the plugin:
+
+```
+claude plugin update openrouter-media@openrouter-media
+```
+
+The check sends nothing about you, and never your API key.
+It waits 3 seconds at most, and a check that fails says nothing.
+Turn it off with `ormedia config set update-check false`.
+
+Claude Code can also update the plugin for you.
+Run `/plugin`, open **Marketplaces**, select `openrouter-media`, and select **Enable auto-update**.
 
 ## Videos take time
 

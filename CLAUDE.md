@@ -28,6 +28,7 @@ Otherwise it downloads the build for the plugin version from the GitHub release,
 - `src/env.rs` - the environment variables and the config folder, as a value that tests can fake
 - `src/files.rs` - reference images, output names, saving, and opening in Fleet
 - `src/models.rs` - turns a model record into text for `ormedia models`
+- `src/update.rs` - the once-a-day check for a newer release
 - `skills/generate-media/SKILL.md` - what Claude reads to learn the CLI
 - `tests/cli.rs` - runs the real program, the way a user does
 - `.github/workflows/release.yml` - builds the program for each platform when a `vX.Y.Z` tag is pushed
