@@ -12,6 +12,7 @@ pub const VIDEO_MODEL: &str = "video-model";
 pub const OUT: &str = "out";
 pub const OPEN: &str = "open";
 pub const TIMEOUT: &str = "timeout";
+pub const UPDATE_CHECK: &str = "update-check";
 
 pub const DEFAULT_IMAGE_MODEL: &str = "google/gemini-nano-banana-2.1";
 pub const DEFAULT_VIDEO_MODEL: &str = "x-ai/grok-imagine-video-1.5-lite";
@@ -68,7 +69,7 @@ pub struct Setting {
 }
 
 /// Every setting `ormedia config` knows.
-pub const SETTINGS: [Setting; 5] = [
+pub const SETTINGS: [Setting; 6] = [
     Setting {
         name: IMAGE_MODEL,
         kind: Kind::Text,
@@ -103,6 +104,13 @@ pub const SETTINGS: [Setting; 5] = [
         env: None,
         fallback: || Some(json!(DEFAULT_TIMEOUT_MINUTES)),
         about: "Minutes to wait for a video",
+    },
+    Setting {
+        name: UPDATE_CHECK,
+        kind: Kind::Boolean,
+        env: Some("ORMEDIA_UPDATE_CHECK"),
+        fallback: || Some(json!(true)),
+        about: "Look for a new version, one time per day",
     },
 ];
 
@@ -203,19 +211,27 @@ pub fn resolve_settings(env: &Env) -> Result<Settings> {
     let resolve = |setting: &'static Setting| {
         let from_env = setting
             .env
-            .and_then(|variable| Some((json!(env.get(variable)?), variable)));
+            .and_then(|variable| Some((variable, env.get(variable)?)));
         let (value, source) = match (from_env, stored.get(setting.name)) {
-            (Some((value, variable)), _) => (Some(value), variable.to_string()),
+            (Some((variable, text)), _) => {
+                let hint = setting.kind.hint();
+                let value = setting.kind.parse(text);
+                let value =
+                    value.ok_or_else(|| format!("${variable} must be {hint}, got \"{text}\""))?;
+                (Some(value), variable.to_string())
+            }
             (None, Some(value)) => (Some(value.clone()), path.clone()),
             (None, None) => ((setting.fallback)(), DEFAULT_SOURCE.to_string()),
         };
-        Resolved {
+        Ok(Resolved {
             name: setting.name,
             value,
             source,
-        }
+        })
     };
-    Ok(Settings(SETTINGS.iter().map(resolve).collect()))
+    Ok(Settings(
+        SETTINGS.iter().map(resolve).collect::<Result<_>>()?,
+    ))
 }
 
 impl Settings {
@@ -292,7 +308,10 @@ mod tests {
         let (env, _dir) = Env::temp();
         let settings = resolve_settings(&env).unwrap();
         let names: Vec<_> = settings.iter().map(|resolved| resolved.name).collect();
-        assert_eq!(names, [IMAGE_MODEL, VIDEO_MODEL, OUT, OPEN, TIMEOUT]);
+        assert_eq!(
+            names,
+            [IMAGE_MODEL, VIDEO_MODEL, OUT, OPEN, TIMEOUT, UPDATE_CHECK]
+        );
         assert!(
             settings
                 .iter()
@@ -303,6 +322,24 @@ mod tests {
         assert_eq!(settings.text(OUT), None);
         assert_eq!(settings.flag(OPEN), Some(true));
         assert_eq!(settings.count(TIMEOUT), Some(20));
+        assert_eq!(settings.flag(UPDATE_CHECK), Some(true));
+    }
+
+    #[test]
+    fn an_environment_variable_is_read_as_the_type_of_its_setting() {
+        let (env, _dir) = Env::temp();
+        set_setting(UPDATE_CHECK, "true", &env).unwrap();
+        let env = env.with("ORMEDIA_UPDATE_CHECK", "false");
+        let settings = resolve_settings(&env).unwrap();
+        let found = (Some(json!(false)), "ORMEDIA_UPDATE_CHECK".to_string());
+        assert_eq!(resolved(&settings, UPDATE_CHECK), found);
+
+        let env = env.with("ORMEDIA_UPDATE_CHECK", "0");
+        let wrong = error(resolve_settings(&env).map(|_| ()));
+        assert_eq!(
+            wrong,
+            "$ORMEDIA_UPDATE_CHECK must be true or false, got \"0\""
+        );
     }
 
     #[test]

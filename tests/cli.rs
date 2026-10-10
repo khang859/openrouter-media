@@ -15,6 +15,9 @@ impl Sandbox {
     fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_ormedia"));
         command.args(args).env("XDG_CONFIG_HOME", self.0.path());
+        // No test may reach GitHub. The cache is in the sandbox too, in case one tries.
+        command.env("XDG_CACHE_HOME", self.0.path().join("cache"));
+        command.env("ORMEDIA_UPDATE_CHECK", "false");
         for variable in [
             "OPENROUTER_API_KEY",
             "ORMEDIA_IMAGE_MODEL",
@@ -208,4 +211,49 @@ fn status_without_a_key_says_so_and_fails() {
         "{\"signedIn\":false}\n"
     );
     assert_eq!(stdout(&sandbox.run(&["logout"])), "Stored key deleted.\n");
+}
+
+#[test]
+fn the_update_check_can_be_turned_off_and_runs_at_most_once_a_day() {
+    let sandbox = Sandbox::new();
+    let state = sandbox
+        .0
+        .path()
+        .join("cache")
+        .join("openrouter-media")
+        .join("update-check.json");
+
+    // Off, from the variable that every test in this file sets.
+    sandbox.run(&["config"]);
+    assert!(!state.exists());
+
+    // On, but a check already ran today, so GitHub is not asked and nothing is said.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    let checked = json!({ "checked_at": now.as_secs() }).to_string();
+    std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+    std::fs::write(&state, &checked).unwrap();
+    let output = sandbox
+        .command(&["config"])
+        .env_remove("ORMEDIA_UPDATE_CHECK")
+        .output()
+        .unwrap();
+    assert!(
+        stdout(&output).contains("update-check true  (default)\n"),
+        "{}",
+        stdout(&output)
+    );
+    assert_eq!(stderr(&output), "");
+    assert_eq!(std::fs::read_to_string(&state).unwrap(), checked);
+
+    // Off, from the saved setting.
+    std::fs::remove_file(&state).unwrap();
+    sandbox.run(&["config", "set", "update-check", "false"]);
+    sandbox
+        .command(&["config"])
+        .env_remove("ORMEDIA_UPDATE_CHECK")
+        .output()
+        .unwrap();
+    assert!(!state.exists());
 }

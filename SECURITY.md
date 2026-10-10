@@ -17,6 +17,7 @@ Only the latest release gets security fixes.
 - `ormedia login` uses the OpenRouter PKCE sign-in, so the key is never typed, pasted, or printed.
 - The key is stored in `~/.config/openrouter-media/credentials.json` with mode `0600`.
 - The key is sent only to `https://openrouter.ai`.
+- The once-a-day update check asks `https://api.github.com` for the newest release. It sends no key and nothing about you.
 - The program has no `unsafe` code and few dependencies, and `Cargo.lock` pins each one.
 
 ## How the plugin gets its program

@@ -36,6 +36,16 @@ impl Env {
         };
         Ok(config_home.join("openrouter-media"))
     }
+
+    /// `$XDG_CACHE_HOME/openrouter-media`, or the same under `~/.cache`.
+    /// `bin/ormedia` keeps the program there.
+    pub fn cache_dir(&self) -> Option<PathBuf> {
+        let cache_home = match self.get("XDG_CACHE_HOME") {
+            Some(dir) => PathBuf::from(dir),
+            None => self.home.as_ref()?.join(".cache"),
+        };
+        Some(cache_home.join("openrouter-media"))
+    }
 }
 
 #[cfg(test)]
@@ -48,13 +58,15 @@ impl Env {
         Self { vars, home: None }
     }
 
-    /// A fake with its own empty config folder. Keep the folder alive for the test.
+    /// A fake with its own empty config folder and cache folder. Keep the folder alive for the test.
     pub fn temp() -> (Self, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        (
-            Self::fake(&[("XDG_CONFIG_HOME", dir.path().to_str().unwrap())]),
-            dir,
-        )
+        let cache = dir.path().join("cache");
+        let env = Self::fake(&[
+            ("XDG_CONFIG_HOME", dir.path().to_str().unwrap()),
+            ("XDG_CACHE_HOME", cache.to_str().unwrap()),
+        ]);
+        (env, dir)
     }
 
     pub fn with(mut self, name: &str, value: &str) -> Self {
