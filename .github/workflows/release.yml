@@ -1,0 +1,86 @@
+name: Release
+
+# A `vX.Y.Z` tag builds the program for every platform and publishes a release.
+# `bin/ormedia` downloads its program from that release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  draft:
+    name: draft the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The tag matches the version in Cargo.toml and plugin.json
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          grep --quiet --fixed-strings --line-regexp "version = \"$version\"" Cargo.toml
+          grep --quiet --fixed-strings "\"version\": \"$version\"" .claude-plugin/plugin.json
+      # A draft is not public, so nobody downloads from a release that is half built.
+      - run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+
+  build:
+    name: build (${{ matrix.target }})
+    needs: draft
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --target "$TARGET" && rustup default stable
+      - if: contains(matrix.target, 'linux-musl')
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
+      - run: cargo build --release --locked --target "$TARGET"
+      - name: Upload the program and its checksum
+        run: |
+          ext=
+          if [[ $TARGET == *windows* ]]; then ext=.exe; fi
+          asset=ormedia-$TARGET$ext
+          cp "target/$TARGET/release/ormedia$ext" "$asset"
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$asset" >"$asset.sha256"
+          else
+            shasum -a 256 "$asset" >"$asset.sha256"
+          fi
+          gh release upload "$GITHUB_REF_NAME" "$asset" "$asset.sha256"
+
+  publish:
+    name: publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest

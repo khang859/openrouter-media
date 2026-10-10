@@ -1,4 +1,86 @@
-#!/usr/bin/env node
-// CommonJS on purpose: a file with no extension runs the same on every Node
-// version this way, and the dynamic import reaches the ES modules.
-import('../src/cli.mjs').then(({ main }) => main(process.argv.slice(2)));
+#!/bin/sh
+# Runs the ormedia program for this machine.
+#
+# A plugin is installed by copying the repo, and the repo holds no compiled
+# program. So the first run downloads the build for this plugin version from
+# the GitHub release, checks it against its checksum, and keeps it.
+# A checkout that ran `cargo build --release` uses that build instead.
+set -eu
+
+repo=khang859/openrouter-media
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+fail() {
+  echo "ormedia: $*" >&2
+  exit 1
+}
+
+ext=
+case "$(uname -s)" in
+  Darwin) os=apple-darwin ;;
+  Linux) os=unknown-linux-musl ;;
+  MINGW* | MSYS* | CYGWIN*)
+    os=pc-windows-msvc
+    ext=.exe
+    ;;
+  *) fail "There is no build for $(uname -s). Build one with: cargo build --release" ;;
+esac
+
+local_build=$root/target/release/ormedia$ext
+if [ -x "$local_build" ]; then
+  exec "$local_build" "$@"
+fi
+
+case "$(uname -m)" in
+  x86_64 | amd64) arch=x86_64 ;;
+  arm64 | aarch64) arch=aarch64 ;;
+  *) fail "There is no build for $(uname -m). Build one with: cargo build --release" ;;
+esac
+# Windows on Arm runs the x86_64 build.
+if [ "$os" = pc-windows-msvc ]; then
+  arch=x86_64
+fi
+
+version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$root/.claude-plugin/plugin.json" | head -n 1)
+if [ -z "$version" ]; then
+  fail "Cannot read the version from $root/.claude-plugin/plugin.json"
+fi
+
+asset=ormedia-$arch-$os$ext
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/openrouter-media/v$version
+program=$cache/$asset
+
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  else
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  fi
+}
+
+download() {
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --output "$2" "$1"
+}
+
+if [ ! -x "$program" ]; then
+  url=https://github.com/$repo/releases/download/v$version/$asset
+  echo "ormedia: downloading version $version, one time..." >&2
+  mkdir -p "$cache"
+  temp=$(mktemp "$cache/download.XXXXXX")
+  if ! download "$url" "$temp" || ! download "$url.sha256" "$temp.sha256"; then
+    rm -f "$temp" "$temp.sha256"
+    fail "Cannot download $url. Check your connection and that release v$version exists, or build with: cargo build --release"
+  fi
+  expected=$(cut -d ' ' -f 1 <"$temp.sha256")
+  actual=$(sha256 "$temp")
+  rm -f "$temp.sha256"
+  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    rm -f "$temp"
+    fail "The download of $url is damaged. Try again."
+  fi
+  chmod +x "$temp"
+  # A rename, so a second run at the same moment never sees half a file.
+  mv -f "$temp" "$program"
+fi
+
+exec "$program" "$@"

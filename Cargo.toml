@@ -1,0 +1,30 @@
+[package]
+name = "ormedia"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.99"
+description = "Generate and edit images, and generate videos, with any OpenRouter model"
+license = "MIT"
+repository = "https://github.com/khang859/openrouter-media"
+publish = false
+
+[dependencies]
+base64 = "0.23"
+clap = { version = "4.6", features = ["derive"] }
+getrandom = "0.4"
+# preserve_order keeps a model's options, and the config file, in the order they were written.
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.11"
+ureq = { version = "3.4", features = ["json"] }
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true
