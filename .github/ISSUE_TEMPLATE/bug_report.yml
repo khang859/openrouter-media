@@ -20,6 +20,6 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: Output of `node --version` and `claude --version`, and your operating system.
+      description: Output of `ormedia --version` and `claude --version`, and your operating system.
     validations:
       required: true

@@ -4,21 +4,21 @@ Thanks for your help.
 
 ## Set up
 
-You need Node.js 22 or newer.
-There is nothing to install, because the plugin has no dependencies.
+You need the latest stable [Rust](https://rustup.rs).
 
 ```bash
 git clone https://github.com/khang859/openrouter-media
 cd openrouter-media
-npm test
+cargo test
+cargo build --release
 claude --plugin-dir .
 ```
 
 ## Rules
 
-- Keep the plugin free of runtime dependencies.
-- Add or update a test in `test/` for every behavior change.
-- Run `npm test` and `claude plugin validate .` before you open a pull request.
+- Keep the dependencies few. Add one only when the standard library cannot do the job well.
+- Add or update a test for every behavior change. Unit tests sit in the source file they test, and `tests/cli.rs` runs the real program.
+- Run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and `claude plugin validate .` before you open a pull request.
 - If you change an API call, run the changed command against the real OpenRouter API once.
 - Never commit an API key, and never print one in a log or an issue.
 - Use [conventional commits](https://www.conventionalcommits.org) with a scope, for example `fix(video): ...`.

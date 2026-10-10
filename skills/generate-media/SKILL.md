@@ -26,7 +26,7 @@ ormedia image --prompt "Change only the sky to a sunset. Keep the building the s
 - `--image` takes a local path or a URL, and repeats for several references.
 - `--out` takes a file name or a folder. An existing file is never overwritten.
 - After the command returns, read the saved file to check the result before you report it.
-- Inside Fleet the image opens in a Fleet tab on its own. Pass `--no-open` to stop that.
+- Inside Fleet the image opens in a Fleet tab on its own. Pass `--no-open` to stop that, or `--open` to force it when the user turned it off.
 
 ## Videos
 
@@ -49,9 +49,23 @@ Do not submit the same video again, because that pays twice.
 ## Choosing a model
 
 Use the default model unless the user names one or the task needs something the default lacks.
+The default is the user's own choice when they saved one, so do not pass `--model` just to repeat it.
 `ormedia models image` and `ormedia models video` list every model with the options it accepts.
 Send only options the chosen model lists.
 The API rejects an unsupported value and names the valid ones, so read the error and retry once.
+
+## Settings
+
+```bash
+ormedia config
+ormedia config set image-model <id>
+ormedia config unset image-model
+```
+
+- `ormedia config` shows each setting and where its value comes from.
+- The settings are `image-model`, `video-model`, `out`, `open`, and `timeout`.
+- A flag on the command line wins over a saved setting.
+- Change a setting only when the user asks for a lasting change. For one result, use the flag.
 
 ## Writing the prompt
 
