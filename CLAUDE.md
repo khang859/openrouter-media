@@ -30,6 +30,7 @@ Otherwise it downloads the build for the plugin version from the GitHub release,
 - `src/models.rs` - turns a model record into text for `ormedia models`
 - `src/update.rs` - the once-a-day check for a newer release
 - `skills/generate-media/SKILL.md` - what Claude reads to learn the CLI
+- `skills/generate-media/prompts/*.md` - one prompt guide for each model family, plus `video-directing.md`. `SKILL.md` links each one, and a test fails when a link or a file is missing.
 - `skills/{login,logout,status,config,models}/SKILL.md` - the slash commands. Each one runs the `ormedia` command of the same name, and only the user can start it.
 - `tests/cli.rs` - runs the real program, the way a user does
 - `.github/workflows/release.yml` - builds the program for each platform when a `vX.Y.Z` tag is pushed

@@ -81,3 +81,28 @@ Do not run the update yourself unless the user asks.
 - For an edit, say what changes and list what must stay the same.
 - For a video, describe one continuous shot: the subject, its motion, and the camera move.
 - Skip quality tags such as "4k, masterpiece". They do nothing on current models.
+
+Those rules work on every model.
+Each model family also has its own syntax, so read the guide for the model before you write the prompt.
+`ormedia config` shows the model in use when you pass no `--model`.
+
+| Model id starts with | Guide |
+|---|---|
+| `google/gemini-` | [prompts/image-google-nano-banana.md](prompts/image-google-nano-banana.md) |
+| `openai/` | [prompts/image-openai-gpt-image.md](prompts/image-openai-gpt-image.md) |
+| `black-forest-labs/flux` (image) | [prompts/image-flux.md](prompts/image-flux.md) |
+| `bytedance-seed/seedream` | [prompts/image-seedream.md](prompts/image-seedream.md) |
+| `recraft/` | [prompts/image-recraft.md](prompts/image-recraft.md) |
+| `qwen/` | [prompts/image-qwen.md](prompts/image-qwen.md) |
+| Any other image model | [prompts/image-other-models.md](prompts/image-other-models.md) |
+| `google/veo` | [prompts/video-google-veo.md](prompts/video-google-veo.md) |
+| `kwaivgi/kling` | [prompts/video-kling.md](prompts/video-kling.md) |
+| `runway/` | [prompts/video-runway.md](prompts/video-runway.md) |
+| `black-forest-labs/flux` (video) | [prompts/video-flux.md](prompts/video-flux.md) |
+| `minimax/hailuo` | [prompts/video-hailuo.md](prompts/video-hailuo.md) |
+| `bytedance/seedance` | [prompts/video-seedance.md](prompts/video-seedance.md) |
+| `alibaba/` | [prompts/video-wan.md](prompts/video-wan.md) |
+| Any other video model | [prompts/video-other-models.md](prompts/video-other-models.md) |
+
+For a video with more than one clip, with speech, or that must look professional, also read [prompts/video-directing.md](prompts/video-directing.md).
+It covers the shot list, the still-first method, consistency between shots, sound, and how to spend less on retries.
