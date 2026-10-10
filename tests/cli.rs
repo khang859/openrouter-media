@@ -79,6 +79,21 @@ fn the_version_is_the_same_everywhere() {
 }
 
 #[test]
+fn each_slash_command_runs_its_own_command_and_only_the_user_starts_it() {
+    let skills = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills");
+    for name in ["login", "logout", "status", "config", "models"] {
+        let text = std::fs::read_to_string(skills.join(name).join("SKILL.md")).unwrap();
+        assert!(text.contains(&format!("\nname: {name}\n")), "{name}");
+        assert!(
+            text.contains("\ndisable-model-invocation: true\n"),
+            "{name}"
+        );
+        assert!(text.contains(&format!("Bash(ormedia {name}")), "{name}");
+        assert!(text.contains(&format!("`ormedia {name}")), "{name}");
+    }
+}
+
+#[test]
 fn config_saves_shows_and_removes_a_setting() {
     let sandbox = Sandbox::new();
     let file = sandbox.config_file().display().to_string();
